@@ -3,30 +3,19 @@
 package main
 
 import (
-	"encoding/base64"
 	"io/ioutil"
 	"net"
 
 	"github.com/inconshreveable/log15"
-
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
-var usernames *UsernameDirectory
-
 func main() {
-	usernames = NewUsernameDirectory()
-
 	sshConfig := &ssh.ServerConfig{
-		NoClientAuth: true,
 		KeyboardInteractiveCallback: func(conn ssh.ConnMetadata, client ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error) {
 			// allow them through, we just do this to get their name
 			return nil, nil
-		},
-		AuthLogCallback: func(conn ssh.ConnMetadata, method string, err error) {
-			// store the username against the connection session id
-			usernames.StoreUsername(conn.SessionID(), conn.User())
 		},
 	}
 
@@ -59,11 +48,12 @@ func main() {
 }
 
 func sshHandleConnection(nConn net.Conn, config *ssh.ServerConfig) {
-	log15.Info("Client Connected", "RemoteAddr", nConn.RemoteAddr())
 	conn, chans, reqs, err := ssh.NewServerConn(nConn, config)
 	if err != nil {
 		log15.Warn("incoming connection failed handshake", "error", err)
 	}
+
+	log15.Info("Client Connected", "RemoteAddr", nConn.RemoteAddr())
 
 	go ssh.DiscardRequests(reqs)
 
@@ -103,7 +93,7 @@ func sshHandleConnection(nConn net.Conn, config *ssh.ServerConfig) {
 		}(requests)
 
 		term := terminal.NewTerminal(channel, "> ")
-		term.Write([]byte("Hi " + usernames.GetUsername(conn.SessionID()) + ".\r\nType 'exit' or press Ctrl+D to leave.\r\n"))
+		term.Write([]byte("Hi " + conn.User() + ".\r\nType 'exit' or press Ctrl+D to leave.\r\n"))
 
 		go func() {
 		read_loop:
@@ -127,23 +117,4 @@ func sshHandleConnection(nConn net.Conn, config *ssh.ServerConfig) {
 		}()
 	}
 	log15.Info("Client Disconnected", "RemoteAddr", nConn.RemoteAddr())
-}
-
-type UsernameDirectory struct {
-	users map[string]string
-}
-
-func NewUsernameDirectory() *UsernameDirectory {
-	return &UsernameDirectory{users: make(map[string]string)}
-}
-
-func (u *UsernameDirectory) StoreUsername(sessionID []byte, name string) {
-	u.users[base64.StdEncoding.EncodeToString(sessionID)] = name
-}
-
-func (u *UsernameDirectory) GetUsername(sessionID []byte) string {
-	if name, ok := u.users[base64.StdEncoding.EncodeToString(sessionID)]; ok {
-		return name
-	}
-	return "[user]"
 }
