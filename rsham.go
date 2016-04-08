@@ -3,6 +3,7 @@
 package main
 
 import (
+	"flag"
 	"io/ioutil"
 	"net"
 
@@ -12,24 +13,11 @@ import (
 )
 
 func main() {
-	sshConfig := &ssh.ServerConfig{
-		KeyboardInteractiveCallback: func(conn ssh.ConnMetadata, client ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error) {
-			// allow them through, we just do this to get their name
-			return nil, nil
-		},
-	}
+	var hostKeyFile string
+	flag.StringVar(&hostKeyFile, "hostKeyFile", "rsham_id_rsa",
+		"key to use as ssh server host key")
 
-	privateBytes, err := ioutil.ReadFile("rsham_id_rsa")
-	if err != nil {
-		log15.Crit("loading private key", "error", err)
-	}
-
-	private, err := ssh.ParsePrivateKey(privateBytes)
-	if err != nil {
-		log15.Crit("parsing private key", "error", err)
-	}
-
-	sshConfig.AddHostKey(private)
+	config := LoadServerConfig(hostKeyFile)
 
 	listener, err := net.Listen("tcp", "[::]:22")
 	if err != nil {
@@ -43,8 +31,31 @@ func main() {
 			log15.Error("incoming connection rejected", "error", err)
 		}
 
-		go sshHandleConnection(conn, sshConfig)
+		go sshHandleConnection(conn, config)
 	}
+}
+
+func LoadServerConfig(hostKeyFile string) *ssh.ServerConfig {
+	config := &ssh.ServerConfig{
+		KeyboardInteractiveCallback: func(conn ssh.ConnMetadata, client ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error) {
+			// allow them through, we just do this to get their name
+			return nil, nil
+		},
+	}
+
+	privateBytes, err := ioutil.ReadFile(hostKeyFile)
+	if err != nil {
+		log15.Crit("loading private key", "error", err)
+	}
+
+	private, err := ssh.ParsePrivateKey(privateBytes)
+	if err != nil {
+		log15.Crit("parsing private key", "error", err)
+	}
+
+	config.AddHostKey(private)
+
+	return config
 }
 
 func sshHandleConnection(nConn net.Conn, config *ssh.ServerConfig) {
@@ -110,6 +121,7 @@ func sshHandleConnection(nConn net.Conn, config *ssh.ServerConfig) {
 				case "":
 
 				default:
+					log15.Info("Client sent command", "command", line)
 					term.Write([]byte("  " + line + "\r\n"))
 				}
 			}
