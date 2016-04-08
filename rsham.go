@@ -138,6 +138,7 @@ func sshHandleConnection(nConn net.Conn, config *ssh.ServerConfig) {
 				if err != nil {
 					break read_loop
 				}
+				sshLog.Info("Client sent command", "command", line)
 				switch line {
 				case "exit":
 					term.Write([]byte("Goodbye.\r\n"))
@@ -152,7 +153,6 @@ func sshHandleConnection(nConn net.Conn, config *ssh.ServerConfig) {
 					}
 
 				default:
-					sshLog.Info("Client sent command", "command", line)
 					term.Write([]byte("  " + line + "\r\n"))
 				}
 			}
