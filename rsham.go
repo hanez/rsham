@@ -121,7 +121,11 @@ func sshHandleConnection(nConn net.Conn, config *ssh.ServerConfig) {
 					ok = true
 
 				default:
-					sshLog.Error("request type not implemented!", "type", req.Type)
+					if conn != nil {
+						sshLog.Error("request type not implemented!", "user", conn.User(), "RemoteAddr", nConn.RemoteAddr(), "type", req.Type)
+					} else {
+						sshLog.Error("request type not implemented!", "RemoteAddr", nConn.RemoteAddr(), "type", req.Type)
+					}
 
 				}
 				req.Reply(ok, nil)
@@ -138,7 +142,7 @@ func sshHandleConnection(nConn net.Conn, config *ssh.ServerConfig) {
 				if err != nil {
 					break read_loop
 				}
-				sshLog.Info("Client sent command", "command", line)
+				sshLog.Info("Client sent command", "user", conn.User(), "RemoteAddr", nConn.RemoteAddr(), "command", line)
 				switch line {
 				case "exit":
 					term.Write([]byte("Goodbye.\r\n"))
