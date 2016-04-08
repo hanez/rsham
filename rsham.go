@@ -163,5 +163,9 @@ func sshHandleConnection(nConn net.Conn, config *ssh.ServerConfig) {
 			channel.Close()
 		}()
 	}
-	sshLog.Info("Client Disconnected", "User", conn.User(), "RemoteAddr", nConn.RemoteAddr())
+	if conn != nil {
+		sshLog.Info("Client Disconnected", "User", conn.User(), "RemoteAddr", nConn.RemoteAddr())
+	} else {
+		sshLog.Info("Client Disconnected", "RemoteAddr", nConn.RemoteAddr())
+	}
 }
