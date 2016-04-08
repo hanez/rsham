@@ -44,6 +44,8 @@ func main() {
 	}
 	log15.Info("Listening for connections on " + bindAddress + ":" + listenPort)
 
+	sshLog.Info("Server Started")
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
