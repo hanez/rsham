@@ -83,7 +83,11 @@ func sshHandleConnection(nConn net.Conn, config *ssh.ServerConfig) {
 		sshLog.Warn("incoming connection failed handshake", "error", err)
 	}
 
-	sshLog.Info("Client Connected", "User", conn.User(), "RemoteAddr", nConn.RemoteAddr())
+	if conn != nil {
+		sshLog.Info("Client Connected", "User", conn.User(), "RemoteAddr", nConn.RemoteAddr())
+	} else {
+		sshLog.Info("Client Connected", "RemoteAddr", nConn.RemoteAddr())
+	}
 
 	go ssh.DiscardRequests(reqs)
 
