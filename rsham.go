@@ -18,6 +18,7 @@ func main() {
 	var hostKeyFile string
 	var bindAddress string
 	var listenPort string
+	var mode string
 
 	flag.StringVar(&hostKeyFile, "hostKeyFile", "rsham_id_rsa",
 		"key to use as ssh server host key")
@@ -25,6 +26,8 @@ func main() {
 		"address to bind to")
 	flag.StringVar(&listenPort, "listenPort", "22",
 		"port to listen on")
+	flag.StringVar(&mode, "mode", "shell",
+		"rsham mode (shell, blocklog)")
 
 	flag.Parse()
 
@@ -52,7 +55,7 @@ func main() {
 			log15.Error("incoming connection rejected", "error", err)
 		}
 
-		go sshHandleConnection(conn, config)
+		go sshHandleConnection(mode, conn, config)
 	}
 }
 
@@ -79,93 +82,115 @@ func LoadServerConfig(hostKeyFile string) *ssh.ServerConfig {
 	return config
 }
 
-func sshHandleConnection(nConn net.Conn, config *ssh.ServerConfig) {
-	conn, chans, reqs, err := ssh.NewServerConn(nConn, config)
-	if err != nil {
-		sshLog.Warn("incoming connection failed handshake", "error", err)
-	}
-
-	if conn != nil {
-		sshLog.Info("Client Connected", "User", conn.User(), "RemoteAddr", nConn.RemoteAddr())
-	} else {
-		sshLog.Info("Client Connected", "RemoteAddr", nConn.RemoteAddr())
-	}
-
-	go ssh.DiscardRequests(reqs)
-
-	for newChannel := range chans {
-		if newChannel.ChannelType() != "session" {
-			newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
-			continue
-		}
-		channel, requests, err := newChannel.Accept()
+func sshHandleConnection(mode string, nConn net.Conn, config *ssh.ServerConfig) {
+	switch mode {
+	case "blocklog":
+		sshLog.Info("Adding IP to blocklist", "ip", nConn.RemoteAddr())
+		blocklist, err := ioutil.ReadFile("blocklist.txt")
 		if err != nil {
-			sshLog.Warn("incoming channel rejected", "error", err)
+			log15.Error("reading blocklist", "error", err)
 		}
 
-		go func(in <-chan *ssh.Request) {
-			for req := range in {
-				ok := false
-				switch req.Type {
-				case "shell":
-					ok = true
-					if len(req.Payload) > 0 {
-						// We don't accept any
-						// commands, only the
-						// default shell.
-						ok = false
-					}
+		blocklist = append(blocklist, []byte(nConn.RemoteAddr().String()+"\n")...)
 
-				case "pty-req":
-					// sshLog.Info("request payload", "type", req.Type, "payload", req.Payload)
-					ok = true
+		err = ioutil.WriteFile("blocklist.txt", blocklist, 0644)
+		if err != nil {
+			log15.Error("writing blocklist", "error", err)
+		}
 
-				default:
-					if conn != nil {
-						sshLog.Error("request type not implemented!", "user", conn.User(), "RemoteAddr", nConn.RemoteAddr(), "type", req.Type)
-					} else {
-						sshLog.Error("request type not implemented!", "RemoteAddr", nConn.RemoteAddr(), "type", req.Type)
-					}
+		nConn.Close()
 
-				}
-				req.Reply(ok, nil)
+	case "shell":
+		conn, chans, reqs, err := ssh.NewServerConn(nConn, config)
+		if err != nil {
+			sshLog.Warn("incoming connection failed handshake", "error", err)
+		}
+
+		if conn != nil {
+			sshLog.Info("Client Connected", "User", conn.User(), "RemoteAddr", nConn.RemoteAddr())
+		} else {
+			sshLog.Info("Client Connected", "RemoteAddr", nConn.RemoteAddr())
+		}
+
+		go ssh.DiscardRequests(reqs)
+
+		for newChannel := range chans {
+			if newChannel.ChannelType() != "session" {
+				newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
+				continue
 			}
-		}(requests)
-
-		term := terminal.NewTerminal(channel, "> ")
-		term.Write([]byte("Hi " + conn.User() + ".\r\nType 'exit' or press Ctrl+D to leave.\r\n"))
-
-		go func() {
-		read_loop:
-			for {
-				line, err := term.ReadLine()
-				if err != nil {
-					break read_loop
-				}
-				sshLog.Info("Client sent command", "user", conn.User(), "RemoteAddr", nConn.RemoteAddr(), "command", line)
-				switch line {
-				case "exit":
-					term.Write([]byte("Goodbye.\r\n"))
-					break read_loop
-
-				case "", "help":
-					term.Write([]byte("Commands:\r\n  exit\r\n  help\r\n  bell\r\n"))
-
-				case "bell":
-					for {
-						term.Write([]byte{0x07})
-					}
-
-				default:
-					term.Write([]byte("  " + line + "\r\n"))
-				}
+			channel, requests, err := newChannel.Accept()
+			if err != nil {
+				sshLog.Warn("incoming channel rejected", "error", err)
 			}
-			channel.Close()
-		}()
-	}
-	if conn != nil {
-		sshLog.Info("Client Disconnected", "User", conn.User(), "RemoteAddr", nConn.RemoteAddr())
-	} else {
-		sshLog.Info("Client Disconnected", "RemoteAddr", nConn.RemoteAddr())
+
+			go func(in <-chan *ssh.Request) {
+				for req := range in {
+					ok := false
+					switch req.Type {
+					case "shell":
+						ok = true
+						if len(req.Payload) > 0 {
+							// We don't accept any
+							// commands, only the
+							// default shell.
+							ok = false
+						}
+
+					case "pty-req":
+						// sshLog.Info("request payload", "type", req.Type, "payload", req.Payload)
+						ok = true
+
+					default:
+						if conn != nil {
+							sshLog.Error("request type not implemented!", "user", conn.User(), "RemoteAddr", nConn.RemoteAddr(), "type", req.Type)
+						} else {
+							sshLog.Error("request type not implemented!", "RemoteAddr", nConn.RemoteAddr(), "type", req.Type)
+						}
+
+					}
+					req.Reply(ok, nil)
+				}
+			}(requests)
+
+			term := terminal.NewTerminal(channel, "> ")
+			term.Write([]byte("Hi " + conn.User() + ".\r\nType 'exit' or press Ctrl+D to leave.\r\n"))
+
+			go func() {
+			read_loop:
+				for {
+					line, err := term.ReadLine()
+					if err != nil {
+						break read_loop
+					}
+					sshLog.Info("Client sent command", "user", conn.User(), "RemoteAddr", nConn.RemoteAddr(), "command", line)
+					switch line {
+					case "exit":
+						term.Write([]byte("Goodbye.\r\n"))
+						break read_loop
+
+					case "", "help":
+						term.Write([]byte("Commands:\r\n  exit\r\n  help\r\n  bell\r\n"))
+
+					case "bell":
+						for {
+							term.Write([]byte{0x07})
+						}
+
+					default:
+						term.Write([]byte("  " + line + "\r\n"))
+					}
+				}
+				channel.Close()
+			}()
+		}
+		if conn != nil {
+			sshLog.Info("Client Disconnected", "User", conn.User(), "RemoteAddr", nConn.RemoteAddr())
+		} else {
+			sshLog.Info("Client Disconnected", "RemoteAddr", nConn.RemoteAddr())
+		}
+
+	default:
+		log15.Crit("invalid rsham mode specified!", "mode", mode)
 	}
 }
