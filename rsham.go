@@ -90,7 +90,7 @@ func sshHandleConnection(mode string, nConn net.Conn, config *ssh.ServerConfig) 
 		ip := nConn.RemoteAddr().String()[:strings.LastIndex(nConn.RemoteAddr().String(), ":")]
 
 		sshLog.Info("adding drop rule to iptables for ip", "ip", ip)
-		cmd := exec.Command("iptables", "-I", "INPUT", "-s", "ip", "-j", "DROP")
+		cmd := exec.Command("iptables", "-I", "INPUT", "-s", ip, "-j", "DROP")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			sshLog.Error("error blocking IP", "ip", ip, "error", err, "command output", out)
