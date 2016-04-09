@@ -6,6 +6,8 @@ import (
 	"flag"
 	"io/ioutil"
 	"net"
+	"os/exec"
+	"strings"
 
 	"github.com/inconshreveable/log15"
 	"golang.org/x/crypto/ssh"
@@ -27,7 +29,7 @@ func main() {
 	flag.StringVar(&listenPort, "listenPort", "22",
 		"port to listen on")
 	flag.StringVar(&mode, "mode", "shell",
-		"rsham mode (shell, blocklog)")
+		"rsham mode (shell, blocklog, iptablesdrop)")
 
 	flag.Parse()
 
@@ -84,6 +86,18 @@ func LoadServerConfig(hostKeyFile string) *ssh.ServerConfig {
 
 func sshHandleConnection(mode string, nConn net.Conn, config *ssh.ServerConfig) {
 	switch mode {
+	case "iptablesdrop":
+		ip := nConn.RemoteAddr().String()[:strings.LastIndex(nConn.RemoteAddr().String(), ":")]
+
+		sshLog.Info("adding drop rule to iptables for ip", "ip", ip)
+		cmd := exec.Command("iptables", "-I INPUT", "-s "+ip, "-j DROP")
+		err := cmd.Run()
+		if err != nil {
+			sshLog.Error("error blocking IP", "ip", ip, "error", err)
+		}
+
+		nConn.Close()
+
 	case "blocklog":
 		sshLog.Info("Adding IP to blocklist", "ip", nConn.RemoteAddr())
 		blocklist, err := ioutil.ReadFile("blocklist.txt")
